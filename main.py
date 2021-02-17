@@ -1,5 +1,4 @@
 import numpy as np
-import time
 import cv2
 from PIL import Image, ImageDraw
 # import Image  as SimpleImage
@@ -55,7 +54,7 @@ def get_edges(image, separate_channels=False):
     direction = gradient_direction_mask(s_channel, sobel_kernel=3, threshold=(0.7, 1.3))
     gradient_mask = np.zeros_like(s_channel)
     gradient_mask[((gradient_x == 1) & (gradient_y == 1)) | ((magnitude == 1) & (direction == 1))] = 1
-    color_mask = color_threshold_mask(s_channel, threshold=(80, 150))
+    color_mask = color_threshold_mask(s_channel, threshold=(50, 250))
 
     if separate_channels:
         return np.dstack((np.zeros_like(s_channel), gradient_mask, color_mask))
@@ -70,25 +69,19 @@ def get_edges(image, separate_channels=False):
 # plt.savefig("array")
 
 success = True
-frame_array = []
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 fps = 29.97
-videoEdge = cv2.VideoWriter('example_out_v2.mp4', fourcc, fps, (1280, 720), False)
-# iterationCount = 0
-start_time = time.time()
+videoEdge = cv2.VideoWriter('example_out.mp4', fourcc, fps, (1280, 720), False)
+iterationCount = 0
 while success:
-    # print(iterationCount)
-    # iterationCount = iterationCount + 1
+    print(iterationCount)
+    iterationCount = iterationCount + 1
     success, image = vidcap.read()
-    # if iterationCount > 1580:
-    #     break
-    # if iterationCount < 780:
-    #     continue
-    # frame_time_start = time.time()
-
+    if iterationCount > 800:
+        break
+    if iterationCount < 780:
+        continue
     edges = get_edges(image)
-    # frame_time_end = time.time()
-    # print(frame_time_end - frame_time_start)
     rgbEdges = np.zeros((720, 1280), dtype='uint8')
     for i in range(0, len(edges)):
         for j in range(0, len(edges[0])):
@@ -97,9 +90,6 @@ while success:
             else:
                 rgbEdges[i, j] = 255
     videoEdge.write(rgbEdges)
-end_time = time.time()
-print(end_time - start_time)
 print('start releasing')
-
 videoEdge.release()
 print('finished')
