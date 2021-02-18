@@ -93,7 +93,7 @@ def create_threshold_variative_video_by_frame():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     fps = 1.0
     videoReader = cv2.VideoCapture('example.mp4')
-    videoWriter = cv2.VideoWriter('frame_test_lightness_1_20.mp4', fourcc, fps, (1280, 720), False)
+    videoWriter = cv2.VideoWriter('frame_test_lightness_1_20_with_frame_buffer.mp4', fourcc, fps, (1280, 720), False)
     frame_number_target = 3570
     frame_number = 0
     success = True
@@ -112,6 +112,17 @@ def create_threshold_variative_video_by_frame():
             break
 
 
+def filter_edges_by_history(frame_history_array, buffer_value=3):
+    frame_t = np.zeros_like(frame_history_array[0])
+    for i in range(0, len(frame_history_array[0])):
+        for j in range(0, len(frame_history_array[0][0])):
+            for frame_index in range(len(frame_history_array)):
+                if frame_history_array[frame_index][i][j] == 1.0:
+                    frame_t[i][j] = frame_t[i][j] + 1
+    filtered_frame_from_array_t = np.zeros_like(frame_t)
+    filtered_frame_from_array_t[(frame_t >= buffer_value)] = 1.0
+    return filtered_frame_from_array_t
+
 # create_threshold_variative_video_by_frame()
 # result = get_edges(testImg)
 # plt.imshow(result)
@@ -119,12 +130,14 @@ def create_threshold_variative_video_by_frame():
 vidcap = cv2.VideoCapture('example_2.mp4')
 success = True
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+frame_buffer = []
 fps = 29.97
-videoEdge = cv2.VideoWriter('example_out_2_5_10.mp4', fourcc, fps, (1280, 720), False)
-render_seconds_count = 1
+videoEdge = cv2.VideoWriter('example_out_2_with_buffer.mp4', fourcc, fps, (1280, 720), False)
+render_seconds_count = 60
 render_start_second_number = 20
 frame_number = 0
 while success:
+
     print(f'frames left: {(render_start_second_number + render_seconds_count) * 30 - frame_number}')
     frame_number = frame_number + 1
     success, frame = vidcap.read()
@@ -133,8 +146,15 @@ while success:
     if frame_number < render_start_second_number * 30:
         continue
     edges = get_edges(frame, main_threshold=5)
-    rgbEdges = create_frame_from_array(edges)
-    videoEdge.write(rgbEdges)
+    if len(frame_buffer) < 5:
+        frame_buffer.append(edges)
+        continue
+    if len(frame_buffer) >= 5:
+        frame_buffer.append(edges)
+        frame_buffer.pop(0)
+        filtered_frame_from_array = filter_edges_by_history(frame_buffer, buffer_value=4)
+        rgbEdges = create_frame_from_array(filtered_frame_from_array)
+        videoEdge.write(rgbEdges)
 print('start releasing')
 videoEdge.release()
 print('finished')
