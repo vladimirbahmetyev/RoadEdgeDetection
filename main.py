@@ -4,7 +4,7 @@ from PIL import Image, ImageDraw
 # import Image  as SimpleImage
 import matplotlib.pyplot as plt
 
-vidcap = cv2.VideoCapture('example.mp4')
+
 
 
 # testImg = Image.open('example.jpg')
@@ -41,20 +41,34 @@ def gradient_direction_mask(image, sobel_kernel=3, threshold=(0, np.pi / 2)):
 
 def color_threshold_mask(image, threshold=120):
     mask = np.zeros_like(image)
-    mask[(image > threshold)] = 1
+    mask[(image < threshold)] = 1
     return mask
 
 
-def get_edges(image, separate_channels=False, main_threshold=90, horizontal_threshold=10):
+def calc_frame_stat(frame_array):
+    average_value = np.average(frame_array)
+    print(f'average value: {average_value}')
+    median_value = np.median(frame_array)
+    print(f'median value: {median_value}')
+    mean_value = np.mean(frame_array)
+    print(f'mean value: {mean_value}')
+    max_value = np.amax(frame_array)
+    print(f'max value: {max_value}')
+    min_value = np.amin(frame_array)
+    print(f'min value: {min_value}')
+
+
+def get_edges(image, separate_channels=False, main_threshold=90, horizontal_threshold=0, color_threshold=120):
     hls = cv2.cvtColor(np.copy(image), cv2.COLOR_RGB2HLS).astype(np.float)
     s_channel = hls[:, :, 1]
+    # calc_frame_stat(s_channel)
     gradient_x = gradient_abs_value_mask(s_channel, axis='x', sobel_kernel=3, threshold=horizontal_threshold)
     # gradient_y = gradient_abs_value_mask(s_channel, axis='y', sobel_kernel=3, threshold=200)
     magnitude = gradient_magnitude_mask(s_channel, sobel_kernel=3, threshold=main_threshold)
     # direction = gradient_direction_mask(s_channel, sobel_kernel=3, threshold=(0.7, 1.3))
     gradient_mask = np.zeros_like(s_channel)
-    gradient_mask[((gradient_x == 1) | (magnitude == 1))] = 1
-    # color_mask = color_threshold_mask(s_channel, threshold=130)
+    gradient_mask[((gradient_x == 1) & (magnitude == 1))] = 1
+    color_mask = color_threshold_mask(s_channel, threshold=color_threshold)
 
     if separate_channels:
         return np.dstack((np.zeros_like(s_channel), gradient_mask, color_mask))
@@ -77,9 +91,9 @@ def create_frame_from_array(array):
 
 def create_threshold_variative_video_by_frame():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    fps = 29.97
+    fps = 1.0
     videoReader = cv2.VideoCapture('example.mp4')
-    videoWriter = cv2.VideoWriter('frame_test.mp4', fourcc, fps, (1280, 720), False)
+    videoWriter = cv2.VideoWriter('frame_test_lightness_1_20.mp4', fourcc, fps, (1280, 720), False)
     frame_number_target = 3570
     frame_number = 0
     success = True
@@ -89,45 +103,38 @@ def create_threshold_variative_video_by_frame():
         if frame_number != frame_number_target:
             continue
         if frame_number == frame_number_target:
-            for main_threshold in range(0, 255, 10):
-                for horizontal_threshold in range(0, 255, 10):
-                    frame_array = get_edges(frame, main_threshold=main_threshold, horizontal_threshold=horizontal_threshold)
-                    result_frame = create_frame_from_array(frame_array)
-                    print(horizontal_threshold + main_threshold)
-                    videoWriter.write(result_frame)
+            for main_threshold in range(1, 20, 1):
+                frame_array = get_edges(frame, main_threshold=main_threshold)
+                result_frame = create_frame_from_array(frame_array)
+                print(main_threshold)
+                videoWriter.write(result_frame)
             videoWriter.release()
             break
 
 
-create_threshold_variative_video_by_frame()
+# create_threshold_variative_video_by_frame()
 # result = get_edges(testImg)
 # plt.imshow(result)
 # plt.savefig("array")
-
-# success = True
-# fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-# fps = 29.97
-# videoEdge = cv2.VideoWriter('example_out.mp4', fourcc, fps, (1280, 720), False)
-# render_seconds_count = 120
-# render_start_second_number = 20
-# frame_number = 0;
-# while success:
-#     print(frame_number)
-#     frame_number = frame_number + 1
-#     success, image = vidcap.read()
-#     if (render_start_second_number + render_seconds_count) * 30 < frame_number:
-#         break
-#     if frame_number < render_start_second_number * 30:
-#         continue
-#     edges = get_edges(image)
-#     rgbEdges = np.zeros((720, 1280), dtype='uint8')
-#     for i in range(0, len(edges)):
-#         for j in range(0, len(edges[0])):
-#             if edges[i, j] == 0.0:
-#                 rgbEdges[i, j] = 0
-#             else:
-#                 rgbEdges[i, j] = 255
-#     videoEdge.write(rgbEdges)
-# print('start releasing')
-# videoEdge.release()
-# print('finished')
+vidcap = cv2.VideoCapture('example_2.mp4')
+success = True
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+fps = 29.97
+videoEdge = cv2.VideoWriter('example_out_2_5_10.mp4', fourcc, fps, (1280, 720), False)
+render_seconds_count = 1
+render_start_second_number = 20
+frame_number = 0
+while success:
+    print(f'frames left: {(render_start_second_number + render_seconds_count) * 30 - frame_number}')
+    frame_number = frame_number + 1
+    success, frame = vidcap.read()
+    if (render_start_second_number + render_seconds_count) * 30 < frame_number:
+        break
+    if frame_number < render_start_second_number * 30:
+        continue
+    edges = get_edges(frame, main_threshold=5)
+    rgbEdges = create_frame_from_array(edges)
+    videoEdge.write(rgbEdges)
+print('start releasing')
+videoEdge.release()
+print('finished')
