@@ -1,13 +1,14 @@
 import numpy as np
 import cv2
 import math
+from numba import njit
+import time
 from PIL import Image, ImageDraw
 # import Image  as SimpleImage
 import matplotlib.pyplot as plt
 
 
 # testImg = Image.open('example.jpg')
-
 def gradient_abs_value_mask(image, sobel_kernel=3, axis='x', threshold=120):
     if axis == 'x':
         sobel = np.absolute(cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=sobel_kernel))
@@ -19,29 +20,35 @@ def gradient_abs_value_mask(image, sobel_kernel=3, axis='x', threshold=120):
     return mask
 
 
-def gradient_magnitude_mask(image, sobel_kernel=3, threshold=120):
-    sobel_x = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
-    sobel_y = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
+@njit(parallel=True)
+def gradient_magnitude_mask(sobel_x, sobel_y, threshold=120):
     magnitude = np.sqrt(sobel_x ** 2 + sobel_y ** 2)
     magnitude = (magnitude * 255 / np.max(magnitude)).astype(np.uint8)
     mask = np.zeros_like(magnitude)
-    mask[(magnitude >= threshold)] = 1
+    for i in range(0, len(magnitude)):
+        for j in range(0, len(magnitude[i])):
+            if magnitude[i][j] >= threshold:
+                mask[i][j] = 1
     return mask
 
 
-def gradient_direction_mask(image, sobel_kernel=3, threshold=(0, np.pi / 2)):
-    sobel_x = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
-    sobel_y = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
+@njit(parallel=True)
+def gradient_direction_mask(sobel_x, sobel_y, threshold=(0, np.pi / 2)):
     direction = np.arctan2(sobel_y, sobel_x) + np.pi
     return direction
 
 
+@njit(parallel=True)
 def color_threshold_mask(image, threshold=120):
     mask = np.zeros_like(image)
-    mask[(image < threshold)] = 1
+    for i in range(0, len(mask)):
+        for j in range(0, len(mask[i])):
+            if image[i][j] < threshold:
+                mask[i][j] = 1
     return mask
 
 
+@njit(parallel=True)
 def calc_frame_stat(frame_array):
     average_value = np.average(frame_array)
     print(f'average value: {average_value}')
@@ -59,12 +66,12 @@ def get_edges(image, separate_channels=False, main_threshold=90, horizontal_thre
     hls = cv2.cvtColor(np.copy(image), cv2.COLOR_RGB2HLS).astype(np.float)
     s_channel = hls[:, :, 1]
     # calc_frame_stat(s_channel)
-    gradient_x = gradient_abs_value_mask(s_channel, axis='x', sobel_kernel=3, threshold=horizontal_threshold)
-    # gradient_y = gradient_abs_value_mask(s_channel, axis='y', sobel_kernel=3, threshold=200)
-    magnitude = gradient_magnitude_mask(s_channel, sobel_kernel=3, threshold=main_threshold)
-    direction_mask = gradient_direction_mask(s_channel, sobel_kernel=3, threshold=(0, np.pi * 2))
+    sobel_x = cv2.Sobel(s_channel, cv2.CV_64F, 1, 0, ksize=3)
+    sobel_y = cv2.Sobel(s_channel, cv2.CV_64F, 0, 1, ksize=3)
+    magnitude = gradient_magnitude_mask(sobel_x, sobel_y, threshold=main_threshold)
+    direction_mask = gradient_direction_mask(sobel_x, sobel_y)
     gradient_mask = np.zeros_like(s_channel)
-    gradient_mask[((gradient_x == 1) & (magnitude == 1))] = 1
+    gradient_mask[(magnitude == 1)] = 1
     color_mask = color_threshold_mask(s_channel, threshold=color_threshold)
     direction_mask[gradient_mask != 1] = 0
 
@@ -76,6 +83,7 @@ def get_edges(image, separate_channels=False, main_threshold=90, horizontal_thre
         return mask, direction_mask
 
 
+@njit(parallel=True, nopython=False)
 def create_frame_from_array(array):
     frame = np.zeros((720, 1280), dtype='uint8')
     for i in range(0, len(array)):
@@ -87,6 +95,7 @@ def create_frame_from_array(array):
     return frame
 
 
+@njit(parallel=True)
 def create_threshold_variative_video_by_frame():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     fps = 1.0
@@ -110,6 +119,7 @@ def create_threshold_variative_video_by_frame():
             break
 
 
+@njit(parallel=True)
 def filter_edges_by_history(frame_history_array, buffer_value=3):
     frame_t = np.zeros_like(frame_history_array[0])
     for i in range(0, len(frame_history_array[0])):
@@ -118,10 +128,14 @@ def filter_edges_by_history(frame_history_array, buffer_value=3):
                 if frame_history_array[frame_index][i][j] == 1.0:
                     frame_t[i][j] = frame_t[i][j] + 1
     filtered_frame_from_array_t = np.zeros_like(frame_t)
-    filtered_frame_from_array_t[(frame_t >= buffer_value)] = 1.0
+    for i in range(0, len(frame_t)):
+        for j in range(0, len(frame_t[0])):
+            if frame_t[i][j] >= buffer_value:
+                filtered_frame_from_array_t[i][j] = 1.0
     return filtered_frame_from_array_t
 
 
+@njit(parallel=True)
 def get_projection(frame):
     src = np.float32([[500, 400], [670, 400], [55, 607], [1067, 607]])
     dist = np.float32([[100, 0], [1180, 0], [100, 720], [1180, 720]])
@@ -130,6 +144,7 @@ def get_projection(frame):
     return proj_frame
 
 
+@njit(parallel=True)
 def create_cluster_frame(direction_mask):
     cluster_mask = np.zeros_like(direction_mask)
     for row_index in range(len(direction_mask)):
@@ -141,6 +156,7 @@ def create_cluster_frame(direction_mask):
     return cluster_mask
 
 
+@njit(parallel=True)
 def create_image_from_cluster(cluster_mask):
     img = np.zeros((720, 1280, 3), np.uint8)
     for row_index in range(0, len(cluster_mask)):
@@ -173,6 +189,7 @@ def create_image_from_cluster(cluster_mask):
     return img
 
 
+@njit(parallel=True)
 def create_clusters_from_frame(frame, threshold=10):
     vertical_start = 360
     pixels_list_with_coords = []
@@ -227,7 +244,7 @@ success = True
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 frame_buffer = []
 fps = 29.97
-videoEdge = cv2.VideoWriter('example_out_2_with_clusters_with_buffer.mp4', fourcc, fps, (1280, 720))
+videoEdge = cv2.VideoWriter('example_out_2_with_numba.mp4', fourcc, fps, (1280, 720))
 render_seconds_count = 30
 render_start_second_number = 25
 frame_number = 0
@@ -241,7 +258,7 @@ while success:
     if frame_number < render_start_second_number * 30:
         continue
     edges, direction_mask = get_edges(frame, main_threshold=5)
-
+    # img = create_image_from_cluster(create_cluster_frame(direction_mask))
     if len(frame_buffer) < 5:
         frame_buffer.append(edges)
         continue
@@ -254,7 +271,7 @@ while success:
         cluster_mask = create_cluster_frame(direction_mask)
         img = create_image_from_cluster(cluster_mask)
         videoEdge.write(img)
-        # projection = get_projection(rgbEdges)
+    # projection = get_projection(rgbEdges)
 print('start releasing')
 videoEdge.release()
 print('finished')
