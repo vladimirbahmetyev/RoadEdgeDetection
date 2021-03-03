@@ -145,14 +145,28 @@ def get_projection(frame):
 
 
 @njit(parallel=True)
-def create_cluster_frame(direction_mask):
+def create_cluster_frame(direction_mask, cluster_count, angle_shift=False):
     cluster_mask = np.zeros_like(direction_mask)
-    for row_index in range(len(direction_mask)):
-        for column_index in range(len(direction_mask[row_index])):
-            if direction_mask[row_index][column_index] == 0:
-                cluster_mask[row_index][column_index] = 0
-                continue
-            cluster_mask[row_index][column_index] = direction_mask[row_index][column_index] // (2 * np.pi / 8) + 1
+    cluster_size = 2 * np.pi / cluster_count
+
+    if angle_shift:
+        start_angle = np.pi/2 - cluster_size / 2
+    else:
+        start_angle = np.pi/2
+
+    cluster_angles = []
+    for i in range(0, cluster_count):
+        cluster_angles.append([start_angle + cluster_size * i, start_angle + cluster_size * (i + 1)])
+
+    for row_index in range(0, len(direction_mask)):
+        for column_index in range(0, len(direction_mask[row_index])):
+            for i in range(0, cluster_count):
+                angle = direction_mask[row_index][column_index]
+                if cluster_angles[i][0] <= angle < cluster_angles[i][1] or \
+                        cluster_angles[i][0] <= angle + np.pi * 2 < cluster_angles[i][1]:
+                    cluster_mask[row_index][column_index] = i + 1
+                    break
+
     return cluster_mask
 
 
@@ -244,34 +258,38 @@ success = True
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 frame_buffer = []
 fps = 29.97
-videoEdge = cv2.VideoWriter('example_out_2_with_numba.mp4', fourcc, fps, (1280, 720))
 render_seconds_count = 30
 render_start_second_number = 25
-frame_number = 0
-while success:
 
-    print(f'frames left: {(render_start_second_number + render_seconds_count) * 30 - frame_number}')
-    frame_number = frame_number + 1
-    success, frame = vidcap.read()
-    if (render_start_second_number + render_seconds_count) * 30 < frame_number:
-        break
-    if frame_number < render_start_second_number * 30:
-        continue
-    edges, direction_mask = get_edges(frame, main_threshold=5)
-    # img = create_image_from_cluster(create_cluster_frame(direction_mask))
-    if len(frame_buffer) < 5:
-        frame_buffer.append(edges)
-        continue
-    if len(frame_buffer) >= 5:
-        frame_buffer.append(edges)
-        frame_buffer.pop(0)
-        filtered_frame_from_array = filter_edges_by_history(frame_buffer, buffer_value=4)
-        rgbEdges = create_frame_from_array(filtered_frame_from_array)
-        direction_mask[rgbEdges == 0] = 0
-        cluster_mask = create_cluster_frame(direction_mask)
+time_start = time.time()
+for clusters_count in range(4, 5):
+    frame_number = 0
+    videoEdge = cv2.VideoWriter(f'example_out_2_with_{clusters_count}_clusters_angle_center_.mp4', fourcc, fps, (1280, 720))
+    while success:
+        print(f'frames left: {(render_start_second_number + render_seconds_count) * 30 - frame_number}')
+        frame_number = frame_number + 1
+        success, frame = vidcap.read()
+        if (render_start_second_number + render_seconds_count) * 30 < frame_number:
+            break
+        if frame_number < render_start_second_number * 30:
+            continue
+
+        edges, direction_mask = get_edges(frame, main_threshold=0)
+        # # img = create_image_from_cluster(create_cluster_frame(direction_mask))
+        # if len(frame_buffer) < 5:
+        #     frame_buffer.append(edges)
+        #     continue
+        # if len(frame_buffer) >= 5:
+        #     frame_buffer.append(edges)
+        #     frame_buffer.pop(0)
+        #     filtered_frame_from_array = filter_edges_by_history(frame_buffer, buffer_value=4)
+        #     rgbEdges = create_frame_from_array(filtered_frame_from_array)
+        #     direction_mask[rgbEdges == 0] = 0
+        cluster_mask = create_cluster_frame(direction_mask, clusters_count, angle_shift=True)
         img = create_image_from_cluster(cluster_mask)
         videoEdge.write(img)
-    # projection = get_projection(rgbEdges)
-print('start releasing')
-videoEdge.release()
+        # projection = get_projection(rgbEdges)
+    print(f'average frame time is {(time.time() - time_start) / 900}')
+    print('start releasing')
+    videoEdge.release()
 print('finished')
