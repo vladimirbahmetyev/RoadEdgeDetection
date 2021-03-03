@@ -20,8 +20,8 @@ The project also includes:
 * Optimization by Numba Python compiler.
 * Creating frame's stats for analyzing optimal threshold.
 
-## Feature, wich will be implemented in future
+## Features, wich will be implemented in future
 * UI/API
-* Calculation proposed road boundaries
-* Caching road boundaries
-* More optimization for real time
+* Calculation proposed road boundaries.
+* Caching road boundaries.
+* More optimization for real time.
