@@ -1,7 +1,7 @@
 # RoadEdgeDetection
 Defining the boundaries of a snow-covered road
 ## Prerequisites
-For properly work you need to have python 3.7+ and to install dependencies from requiriments.txt.
+For properly work you need to have python 3.7.* only and to install dependencies from requiriments.txt.
 ## Installing 
 For installing you can use simple pip command.
 
