@@ -3,9 +3,7 @@ import cv2
 import math
 from numba import njit
 import time
-from PIL import Image, ImageDraw
-# import Image  as SimpleImage
-import matplotlib.pyplot as plt
+import os
 
 
 # testImg = Image.open('example.jpg')
@@ -62,32 +60,37 @@ def calc_frame_stat(frame_array):
     print(f'min value: {min_value}')
 
 
-def get_edges(image, separate_channels=False, main_threshold=90, horizontal_threshold=0, color_threshold=120):
+def get_edges(image, separate_channels=False, main_threshold=90, horizontal_threshold=0, color_threshold=120,
+              kernel_size=3):
     hls = cv2.cvtColor(np.copy(image), cv2.COLOR_RGB2HLS).astype(np.float)
     s_channel = hls[:, :, 1]
-    # calc_frame_stat(s_channel)
-    sobel_x = cv2.Sobel(s_channel, cv2.CV_64F, 1, 0, ksize=3)
-    sobel_y = cv2.Sobel(s_channel, cv2.CV_64F, 0, 1, ksize=3)
-    magnitude = gradient_magnitude_mask(sobel_x, sobel_y, threshold=main_threshold)
-    direction_mask = gradient_direction_mask(sobel_x, sobel_y)
-    gradient_mask = np.zeros_like(s_channel)
-    gradient_mask[(magnitude == 1)] = 1
-    color_mask = color_threshold_mask(s_channel, threshold=color_threshold)
-    direction_mask[gradient_mask != 1] = 0
+    sobel_x = cv2.Sobel(s_channel, cv2.CV_64F, 1, 0, ksize=kernel_size)
+    sobel_y = cv2.Sobel(s_channel, cv2.CV_64F, 0, 1, ksize=kernel_size)
 
-    if separate_channels:
-        return np.dstack((np.zeros_like(s_channel), gradient_mask, color_mask))
-    else:
-        mask = np.zeros_like(gradient_mask)
-        mask[(gradient_mask == 1)] = 1
-        return mask, direction_mask
+    # magnitude = gradient_magnitude_mask(sobel_x, sobel_y, threshold=main_threshold)
+
+    direction_mask = gradient_direction_mask(sobel_x, sobel_y)
+
+    # gradient_mask = np.zeros_like(s_channel)
+    # # gradient_mask[(magnitude == 1)] = 1
+    # color_mask = color_threshold_mask(s_channel, threshold=color_threshold)
+    # direction_mask[gradient_mask != 1] = 0
+    mask = None
+    # if separate_channels:
+    #     return np.dstack((np.zeros_like(s_channel), gradient_mask, color_mask))
+    # else:
+    # mask = np.zeros_like(gradient_mask)
+    # mask[(gradient_mask == 1)] = 1
+    return mask, direction_mask
 
 
 @njit(parallel=True, nopython=False)
 def create_frame_from_array(array):
-    frame = np.zeros((720, 1280), dtype='uint8')
-    for i in range(0, len(array)):
-        for j in range(0, len(array[0])):
+    row_numbers = len(array)
+    column_numbers = len(array[0])
+    frame = np.zeros((row_numbers, column_numbers), dtype='uint8')
+    for i in range(0, row_numbers):
+        for j in range(0, column_numbers):
             if array[i, j] == 0.0:
                 frame[i, j] = 0
             else:
@@ -100,7 +103,7 @@ def create_threshold_variative_video_by_frame():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     fps = 1.0
     videoReader = cv2.VideoCapture('example.mp4')
-    videoWriter = cv2.VideoWriter('frame_test_lightness_1_20_with_frame_buffer.mp4', fourcc, fps, (1280, 720), False)
+    videoWriter = cv2.VideoWriter('frame_test_lightness_1_20_with_frame_buffer.mp4', fourcc, fps, (1280, 400), False)
     frame_number_target = 3570
     frame_number = 0
     success = True
@@ -150,9 +153,9 @@ def create_cluster_frame(direction_mask, cluster_count, angle_shift=False):
     cluster_size = 2 * np.pi / cluster_count
 
     if angle_shift:
-        start_angle = np.pi/2 - cluster_size / 2
+        start_angle = np.pi / 2 - cluster_size / 2
     else:
-        start_angle = np.pi/2
+        start_angle = np.pi / 2
 
     cluster_angles = []
     for i in range(0, cluster_count):
@@ -171,110 +174,131 @@ def create_cluster_frame(direction_mask, cluster_count, angle_shift=False):
 
 
 @njit(parallel=True)
-def create_image_from_cluster(cluster_mask):
-    img = np.zeros((720, 1280, 3), np.uint8)
-    for row_index in range(0, len(cluster_mask)):
-        for column_index in range(0, len(cluster_mask[row_index])):
-            value = cluster_mask[row_index][column_index]
-            if value == 1.0:
-                img[row_index][column_index] = (0, 0, 255)
-                continue
-            if value == 2.0:
-                img[row_index][column_index] = (0, 255, 0)
-                continue
-            if value == 3.0:
-                img[row_index][column_index] = (255, 0, 0)
-                continue
-            if value == 4.0:
-                img[row_index][column_index] = (0, 255, 255)
-                continue
-            if value == 5.0:
-                img[row_index][column_index] = (255, 0, 255)
-                continue
-            if value == 6.0:
-                img[row_index][column_index] = (255, 255, 255)
-                continue
-            if value == 7.0:
-                img[row_index][column_index] = (255, 255, 0)
-                continue
-            if value == 8.0:
-                img[row_index][column_index] = (128, 128, 0)
-                continue
-    return img
+def create_image_from_cluster(cluster_mask, horizontal_size=0, vertical_size=720, merging=False, input_img=None):
+    if not merging:
+        img = np.zeros((vertical_size, horizontal_size, 3), np.uint8)
+        for row_index in range(0, len(cluster_mask)):
+            for column_index in range(0, len(cluster_mask[row_index])):
+                value = cluster_mask[row_index][column_index]
+                if value == 1.0:
+                    img[row_index][column_index] = (0, 0, 255)
+                    continue
+                if value == 2.0:
+                    img[row_index][column_index] = (0, 255, 0)
+                    continue
+                if value == 3.0:
+                    img[row_index][column_index] = (255, 0, 0)
+                    continue
+                if value == 4.0:
+                    img[row_index][column_index] = (0, 255, 255)
+                    continue
+                if value == 5.0:
+                    img[row_index][column_index] = (255, 0, 255)
+                    continue
+                if value == 6.0:
+                    img[row_index][column_index] = (255, 255, 255)
+                    continue
+                if value == 7.0:
+                    img[row_index][column_index] = (255, 255, 0)
+                    continue
+                if value == 8.0:
+                    img[row_index][column_index] = (128, 128, 0)
+                    continue
+        return img
+    else:
+        merge_img = np.copy(input_img)
+        vertical_parts_count = 16
+        horizontal_parts_count = 32
+        vertical_step = vertical_size // vertical_parts_count
+        vertical_indexes = []
+        horizontal_indexes = []
+        horizontal_step = horizontal_size // horizontal_parts_count
+        for i in range(0, vertical_parts_count):
+            vertical_indexes.append((vertical_step * i, vertical_step * (i + 1)))
+        vertical_indexes.append((vertical_step * vertical_parts_count,
+                                 vertical_step * vertical_parts_count + vertical_size % vertical_step))
+        for i in range(0, horizontal_parts_count):
+            horizontal_indexes.append((horizontal_step * i, horizontal_step * (i + 1)))
+        horizontal_indexes.append((horizontal_step * horizontal_parts_count,
+                                   horizontal_step * horizontal_parts_count + horizontal_size % horizontal_step))
+
+        cluster_check_mask = []
+        for i in range(0, vertical_parts_count + 1):
+            row = []
+            for j in range(0, horizontal_parts_count + 1):
+                row.append(is_cluster_part_valid(vertical_indexes[i], horizontal_indexes[j],
+                                                 cluster_mask, 40))
+            cluster_check_mask.append(row)
+
+        for row_index in range(1, len(cluster_mask)):
+            for column_index in range(1, len(cluster_mask[row_index]) - 1):
+
+                vertical_mask_index = row_index // vertical_step
+                horizontal_mask_index = column_index // horizontal_step
+                is_any_cluster_valid = cluster_check_mask[vertical_mask_index][horizontal_mask_index][0] or \
+                                       cluster_check_mask[vertical_mask_index][horizontal_mask_index][1]
+                if not is_any_cluster_valid:
+                    continue
+                value = cluster_mask[row_index][column_index]
+
+                if value == 2.0 and cluster_check_mask[vertical_mask_index][horizontal_mask_index][0] \
+                        and (cluster_check_mask[vertical_mask_index - 1][horizontal_mask_index - 1][0] \
+                             or cluster_check_mask[vertical_mask_index - 1][horizontal_mask_index][0] \
+                             or cluster_check_mask[vertical_mask_index - 1][horizontal_mask_index - 1][0]):
+                    merge_img[row_index][column_index] = (0, 255, 0)
+                    continue
+                if value == 4.0 and cluster_check_mask[vertical_mask_index][horizontal_mask_index][1]:
+                    merge_img[row_index][column_index] = (0, 255, 255)
+                    continue
+        return merge_img
 
 
 @njit(parallel=True)
-def create_clusters_from_frame(frame, threshold=10):
-    vertical_start = 360
-    pixels_list_with_coords = []
-    for i in range(vertical_start, len(frame)):
-        for j in range(0, len(frame)):
-
-            if frame[i][j] > 0.0:
-                pixels_list_with_coords.append([i, j])
-    pixels_length = len(pixels_list_with_coords)
-    matrix = [[] for i in range(0, pixels_length)]
-    print('start to cound dist')
-    for i in range(0, pixels_length):
-        for j in range(i, pixels_length):
-            dist = math.sqrt((pixels_list_with_coords[i][0] - pixels_list_with_coords[j][0]) ** 2 + (
-                    pixels_list_with_coords[i][1] - pixels_list_with_coords[j][1]) ** 2)
-            if dist < threshold and i != j:
-                matrix[i].append(j)
-    clusters = []
-    print('counted dist')
-    checked_pixels = [False for i in range(0, pixels_length)]
-
-    for i in range(0, len(pixels_list_with_coords)):
-        if checked_pixels[i]:
-            continue
-        new_cluster = []
-        cluster_queue = [i]
-        checked_pixels[i] = True
-        while len(cluster_queue) > 0:
-            current_pixel = cluster_queue.pop(0)
-            new_cluster.append(current_pixel)
-            checked_pixels[current_pixel] = True
-            for neighbor_pixel_index in range(0, len(matrix[i])):
-                if not checked_pixels[neighbor_pixel_index]:
-                    cluster_queue.append(neighbor_pixel_index)
-        clusters.append(new_cluster)
-
-    result_clusters = []
-    for cluster in clusters:
-        cluster_with_coords = []
-        for pixel_index in cluster:
-            cluster_with_coords.append(pixels_list_with_coords[pixel_index])
-        result_clusters.append(cluster_with_coords)
-    return result_clusters
+def is_cluster_part_valid(vertical_indexes, horizontal_indexes, cluster, threshold=1000):
+    first_cluster_count = 0
+    second_cluster_count = 0
+    for i in range(vertical_indexes[0], vertical_indexes[1]):
+        for j in range(horizontal_indexes[0], horizontal_indexes[1]):
+            cluster_index = cluster[i][j]
+            if cluster_index == 2.0:
+                first_cluster_count += 1
+            if cluster_index == 4.0:
+                second_cluster_count += 1
+    return (first_cluster_count > threshold and first_cluster_count > second_cluster_count,
+            second_cluster_count > threshold and second_cluster_count > first_cluster_count)
 
 
 # create_threshold_variative_video_by_frame()
 # result = get_edges(testImg)
 # plt.imshow(result)
 # plt.savefig("array")
-vidcap = cv2.VideoCapture('example_2.mp4')
+vidcap = cv2.VideoCapture('example_3.avi')
 success = True
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 frame_buffer = []
 fps = 29.97
-render_seconds_count = 30
-render_start_second_number = 25
+render_seconds_count = 200
+render_start_second_number = 0
 
 time_start = time.time()
+kernel_size = 7
 for clusters_count in range(4, 5):
     frame_number = 0
-    videoEdge = cv2.VideoWriter(f'example_out_2_with_{clusters_count}_clusters_angle_center_.mp4', fourcc, fps, (1280, 720))
+    videoEdge = cv2.VideoWriter(f'filtration_cluster_by_scanning.mp4', fourcc, fps, (640, 134))
+
     while success:
         print(f'frames left: {(render_start_second_number + render_seconds_count) * 30 - frame_number}')
         frame_number = frame_number + 1
-        success, frame = vidcap.read()
+        success, frame_full = vidcap.read()
+
         if (render_start_second_number + render_seconds_count) * 30 < frame_number:
             break
         if frame_number < render_start_second_number * 30:
             continue
-
-        edges, direction_mask = get_edges(frame, main_threshold=0)
+        frame_time = time.time()
+        frame_part = frame_full[366:633]
+        frame = cv2.resize(frame_part, (640, 134), cv2.INTER_AREA)
+        edges, direction_mask = get_edges(frame, main_threshold=0, kernel_size=kernel_size)
         # # img = create_image_from_cluster(create_cluster_frame(direction_mask))
         # if len(frame_buffer) < 5:
         #     frame_buffer.append(edges)
@@ -286,10 +310,13 @@ for clusters_count in range(4, 5):
         #     rgbEdges = create_frame_from_array(filtered_frame_from_array)
         #     direction_mask[rgbEdges == 0] = 0
         cluster_mask = create_cluster_frame(direction_mask, clusters_count, angle_shift=True)
-        img = create_image_from_cluster(cluster_mask)
+        img = create_image_from_cluster(cluster_mask, vertical_size=134, horizontal_size=640, merging=True,
+                                        input_img=frame)
+        end_frame_time = time.time() - frame_time
+        print(f'frames time{end_frame_time}')
         videoEdge.write(img)
         # projection = get_projection(rgbEdges)
-    print(f'average frame time is {(time.time() - time_start) / 900}')
+    print(f'average frame time is {(time.time() - time_start) / (render_seconds_count * fps)}')
     print('start releasing')
     videoEdge.release()
 print('finished')
