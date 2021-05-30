@@ -102,11 +102,7 @@ def create_image_from_cluster(cluster_mask, horizontal_size=0, vertical_size=720
                     continue
         return img
     else:
-        # cluster_time = time.time()
-        # print('cluster time{}'.format(time.time() - cluster_time))
-        # hough_time = time.time()
         with_lines = filter_frame_by_lines(cluster_mask, threshold=100)
-        # print('Hough time: {}'.format(time.time() - hough_time))
         merge_img = np.copy(input_img)
 
         for row_index in range(1, len(cluster_mask)):
@@ -484,7 +480,6 @@ fps = 29.97
 render_seconds_count = 300
 render_start_second_number = 30
 filtered_frame_from_array = []
-time_start = time.time()
 kernel_size = 7
 frame_number = 0
 frame_produced_number = 0
@@ -510,15 +505,14 @@ while success:
         break
     if frame_number < render_start_second_number * 30:
         continue
-    frame_time = time.time()
-    # preprocessing_time = time.time()
+
+    full_time_start = time.time()
     frame_part = frame_full[360:633]
     frame_part_final = frame_full_ideal[360:633]
     frame = cv2.resize(frame_part, (640, 134), cv2.INTER_AREA)
     frame_ideal_blue = cv2.resize(frame_part_final, (640, 134), cv2.INTER_AREA)
-    # print(f'preprocessing time: {time.time() - preprocessing_time}')
     edges, direction_mask = get_edges(frame, main_threshold=0, kernel_size=kernel_size)
-    # class_time = time.time()
+    class_time_start = time.time()
     class_mask_center = create_class_frame(direction_mask, 4, angle_shift=False)
     class_mask_center_filtered = filtrate_angle_cluster_by_group(class_mask_center, min_threshold=500,
                                                                  max_threshold=2000)
@@ -528,9 +522,12 @@ while success:
     class_mask_left = create_class_frame(direction_mask, 4, angle_shift=True, angle_shift_size=np.pi / 3)
     class_mask_left_filtered = filtrate_angle_cluster_by_group(class_mask_left, min_threshold=1000, max_threshold=2000,
                                                                with_neighbour=False)
+    class_time_end = time.time() - class_time_start
     cluster_mask = merge_masks(class_mask_center_filtered, class_mask_left_filtered, class_mask_right_filtered)
     cluster_mask_filtered = filter_mask_by_trap(cluster_mask)
-    # print(f'class time: {time.time() - class_time}')
+    full_time_end = time.time() - full_time_start
+    print(f'Class time: {class_time_end}')
+    print(f'Full time: {full_time_end}')
     prec, rec, f, fpr = calc_accuracy(cluster_mask_filtered, cluster_mask, frame_ideal_blue)
     if prec is not None:
         prec_acc += prec
@@ -538,34 +535,40 @@ while success:
         f_acc += f
         fpr_acc += fpr
         frame_produced_number += 1
-        prec_acc_array.append(prec_acc / frame_produced_number)
-        recall_acc_array.append(recall_acc / frame_produced_number)
-        f_acc_array.append(f_acc / frame_produced_number)
-        fpr_acc_array.append(fpr_acc / frame_produced_number)
+        prec_acc_array.append(prec)
+        recall_acc_array.append(rec)
+        f_acc_array.append(f)
+        fpr_acc_array.append(fpr)
         frame_index_array.append(frame_produced_number)
     img = create_image_from_cluster(cluster_mask_filtered
                                     , vertical_size=134, horizontal_size=640,
                                     merging=True,
                                     input_img=frame)
-    end_frame_time = time.time() - frame_time
-    print(f'frames time{end_frame_time}')
     video_writer.write(img)
-print(f'average frame time is {(time.time() - time_start) / (render_seconds_count * fps)}')
 print('start releasing')
 print(f'Average Precision: {prec_acc / frame_produced_number}')
 print(f'Average Recall: {recall_acc / frame_produced_number}')
 print(f'Average F-мера: {f_acc / frame_produced_number}')
+print(f'Average FPR: {fpr_acc / frame_produced_number}')
+fig = plt.figure()
 plt.title('Precision')
 plt.plot(frame_index_array, prec_acc_array)
 plt.show()
+fig.savefig('Precision_2', dpi=100)
+fig = plt.figure()
 plt.title('Recall/TPR')
 plt.plot(frame_index_array, recall_acc_array)
 plt.show()
+fig.savefig('Recall_2', dpi=100)
+fig = plt.figure()
 plt.title('F')
 plt.plot(frame_index_array, f_acc_array)
 plt.show()
+fig.savefig('F-мера_2', dpi=100)
+fig = plt.figure()
 plt.title('FPR')
 plt.plot(frame_index_array, fpr_acc_array)
 plt.show()
+fig.savefig('FPR_2', dpi=100)
 video_writer.release()
 print('finished')
